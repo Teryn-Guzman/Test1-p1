@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+// startImageWorker runs one background worker that periodically polls the database for
+// queued image jobs and processes them without blocking the HTTP request path.
 func (app *application) startImageWorker(ctx context.Context) {
 	app.wg.Add(1)
 	go func() {
@@ -27,6 +29,8 @@ func (app *application) startImageWorker(ctx context.Context) {
 	}()
 }
 
+// startReportWorker is a separate legacy worker for the report path.
+// It is intentionally left here because the application still includes both image and report queues.
 func (app *application) startReportWorker(ctx context.Context) {
 
 	// Q23: The worker is started once when the application starts. I don't want a

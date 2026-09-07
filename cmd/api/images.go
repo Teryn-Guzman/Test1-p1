@@ -18,7 +18,21 @@ import (
 	"github.com/teryn-guzman/gatekeeper-asynchronous/internal/data"
 )
 
+// Version 1 enforces a strict upload boundary: the browser may preview the file,
+// but the server is the authority for validation, storage, and durable job creation.
 const maxImageSize int64 = 10 * 1024 * 1024
+
+var (
+	errInvalidImageUpload = errors.New("image upload is too large or malformed")
+	errMissingImageField  = errors.New("image field is required")
+)
+
+type uploadedImage struct {
+	data             []byte
+	originalFilename string
+	contentType      string
+	storedFilename   string
+}
 
 func randomFilename(ext string) (string, error) {
 	var bytes [16]byte
@@ -28,64 +42,115 @@ func randomFilename(ext string) (string, error) {
 	return fmt.Sprintf("%x%s", bytes, ext), nil
 }
 
+// createImageHandler accepts one multipart upload, stores the original to disk,
+// creates the corresponding image + queued job records, and returns a 202 Accepted.
 func (app *application) createImageHandler(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxImageSize+1024*1024)
-	if err := r.ParseMultipartForm(maxImageSize + 1024*1024); err != nil {
-		app.badRequestResponse(w, r, errors.New("image upload is too large or malformed"))
-		return
-	}
-	file, header, err := r.FormFile("image")
+	uploaded, err := app.parseUploadedImage(r)
 	if err != nil {
-		app.badRequestResponse(w, r, errors.New("image field is required"))
+		var clientErr error
+		switch {
+		case errors.Is(err, errInvalidImageUpload):
+			clientErr = errInvalidImageUpload
+		case errors.Is(err, errMissingImageField):
+			clientErr = errMissingImageField
+		default:
+			app.serverErrorResponse(w, r, err)
+			return
+		}
+		app.badRequestResponse(w, r, clientErr)
 		return
 	}
-	defer file.Close()
-	if header.Size <= 0 || header.Size > maxImageSize {
-		app.badRequestResponse(w, r, errors.New("image must be no larger than 10 MB"))
-		return
-	}
-	dataBytes, err := io.ReadAll(io.LimitReader(file, maxImageSize+1))
-	if err != nil {
+
+	if err := app.storeOriginalImage(uploaded); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
-	kind := http.DetectContentType(dataBytes)
-	if kind != "image/jpeg" && kind != "image/png" {
-		app.badRequestResponse(w, r, errors.New("only JPEG and PNG images are supported"))
-		return
+
+	imageRecord := &data.Image{
+		OriginalFilename: filepath.Base(uploaded.originalFilename),
+		StoredFilename:   uploaded.storedFilename,
+		MediaType:        uploaded.contentType,
+		Size:             int64(len(uploaded.data)),
 	}
-	decoded, format, err := image.Decode(strings.NewReader(string(dataBytes)))
-	if err != nil || (format != "jpeg" && format != "png") {
-		app.badRequestResponse(w, r, errors.New("uploaded file is not a decodable JPEG or PNG"))
-		return
-	}
-	ext := ".png"
-	if kind == "image/jpeg" {
-		ext = ".jpg"
-	}
-	stored, err := randomFilename(ext)
-	if err != nil {
-		app.serverErrorResponse(w, r, err)
-		return
-	}
-	if err := os.WriteFile(filepath.Join(app.config.storageDir, stored), dataBytes, 0600); err != nil {
-		app.serverErrorResponse(w, r, err)
-		return
-	}
-	imageRecord := &data.Image{OriginalFilename: filepath.Base(header.Filename), StoredFilename: stored, MediaType: kind, Size: int64(len(dataBytes))}
 	job := &data.ImageJob{}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 5e9)
 	defer cancel()
+
 	if err := app.models.Images.Insert(ctx, imageRecord, job); err != nil {
-		_ = os.Remove(filepath.Join(app.config.storageDir, stored))
+		_ = os.Remove(filepath.Join(app.config.storageDir, uploaded.storedFilename))
 		app.serverErrorResponse(w, r, err)
 		return
 	}
+
 	statusURL := "/v1/jobs/" + job.ID
 	headers := make(http.Header)
 	headers.Set("Location", statusURL)
+	app.writeJSON(w, http.StatusAccepted, envelope{
+		"image_id":  imageRecord.ID,
+		"job_id":    job.ID,
+		"status":    job.Status,
+		"status_url": statusURL,
+	}, headers)
+}
+
+// parseUploadedImage validates the multipart payload before any durable work is created.
+func (app *application) parseUploadedImage(r *http.Request) (uploadedImage, error) {
+	if err := r.ParseMultipartForm(maxImageSize + 1024*1024); err != nil {
+		return uploadedImage{}, errInvalidImageUpload
+	}
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		return uploadedImage{}, errMissingImageField
+	}
+	defer file.Close()
+
+	if header.Size <= 0 || header.Size > maxImageSize {
+		return uploadedImage{}, errors.New("image must be no larger than 10 MB")
+	}
+
+	dataBytes, err := io.ReadAll(io.LimitReader(file, maxImageSize+1))
+	if err != nil {
+		return uploadedImage{}, err
+	}
+
+	contentType := http.DetectContentType(dataBytes)
+	if contentType != "image/jpeg" && contentType != "image/png" {
+		return uploadedImage{}, errors.New("only JPEG and PNG images are supported")
+	}
+
+	decoded, format, err := image.Decode(strings.NewReader(string(dataBytes)))
+	if err != nil || (format != "jpeg" && format != "png") {
+		return uploadedImage{}, errors.New("uploaded file is not a decodable JPEG or PNG")
+	}
 	_ = decoded
-	app.writeJSON(w, http.StatusAccepted, envelope{"image_id": imageRecord.ID, "job_id": job.ID, "status": job.Status, "status_url": statusURL}, headers)
+
+	ext := ".png"
+	if contentType == "image/jpeg" {
+		ext = ".jpg"
+	}
+
+	storedFilename, err := randomFilename(ext)
+	if err != nil {
+		return uploadedImage{}, err
+	}
+
+	return uploadedImage{
+		data:             dataBytes,
+		originalFilename: header.Filename,
+		contentType:      contentType,
+		storedFilename:   storedFilename,
+	}, nil
+}
+
+// storeOriginalImage keeps the original file under a server-controlled filename.
+func (app *application) storeOriginalImage(uploaded uploadedImage) error {
+	path := filepath.Join(app.config.storageDir, uploaded.storedFilename)
+	if err := os.WriteFile(path, uploaded.data, 0600); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (app *application) getVariantHandler(w http.ResponseWriter, r *http.Request) {
@@ -101,60 +166,84 @@ func (app *application) getVariantHandler(w http.ResponseWriter, r *http.Request
 	http.ServeFile(w, r, filepath.Join(app.config.storageDir, variant.Filename))
 }
 
+// processNextImageJob is the worker-side execution path. It claims a queued image job,
+// reads the original, generates the required variants, and marks the job complete.
 func (app *application) processNextImageJob(ctx context.Context) error {
 	job, err := app.models.Images.ClaimNext(ctx)
 	if err != nil {
 		return err
 	}
+
 	imageRecord, err := app.models.Images.Original(ctx, job.ImageID)
 	if err != nil {
 		_ = app.models.Images.Fail(ctx, job.ID, "original image is unavailable")
 		return err
 	}
+
 	source, err := os.Open(filepath.Join(app.config.storageDir, imageRecord.StoredFilename))
 	if err != nil {
 		_ = app.models.Images.Fail(ctx, job.ID, "original image is unavailable")
 		return err
 	}
 	defer source.Close()
+
 	decoded, _, err := image.Decode(source)
 	if err != nil {
 		_ = app.models.Images.Fail(ctx, job.ID, "original image could not be decoded")
 		return err
 	}
-	profiles := []struct {
+
+	// The all-or-nothing contract requires all three variants before the job is complete.
+	for _, profile := range []struct {
 		name          string
 		width, height int
 		crop          bool
-	}{{"thumbnail", 150, 150, true}, {"preview", 800, 600, false}, {"display", 1200, 900, false}}
-	for _, profile := range profiles {
+	}{
+		{"thumbnail", 150, 150, true},
+		{"preview", 800, 600, false},
+		{"display", 1200, 900, false},
+	} {
 		output, width, height := resize(decoded, profile.width, profile.height, profile.crop)
 		filename, err := randomFilename(".png")
 		if err != nil {
 			_ = app.models.Images.Fail(ctx, job.ID, "could not create output")
 			return err
 		}
+
 		path := filepath.Join(app.config.storageDir, filename)
 		f, err := os.Create(path)
 		if err != nil {
 			_ = app.models.Images.Fail(ctx, job.ID, "could not store output")
 			return err
 		}
-		err = png.Encode(f, output)
-		f.Close()
-		if err != nil {
+
+		if err = png.Encode(f, output); err != nil {
+			_ = f.Close()
 			_ = app.models.Images.Fail(ctx, job.ID, "could not encode output")
 			return err
 		}
-		info, _ := os.Stat(path)
+		if err := f.Close(); err != nil {
+			_ = app.models.Images.Fail(ctx, job.ID, "could not close output file")
+			return err
+		}
+
+		info, err := os.Stat(path)
+		if err != nil {
+			_ = app.models.Images.Fail(ctx, job.ID, "could not read output metadata")
+			return err
+		}
+
 		if err := app.models.Images.AddVariant(ctx, job.ImageID, profile.name, filename, width, height, info.Size()); err != nil {
 			_ = app.models.Images.Fail(ctx, job.ID, "could not record output")
 			return err
 		}
 	}
+
 	return app.models.Images.Complete(ctx, job.ID)
 }
 
+// resize handles the required variant sizing rules while preserving aspect ratio
+// unless the variant explicitly requires a crop, such as the thumbnail output.
 func resize(source image.Image, maxWidth, maxHeight int, crop bool) (image.Image, int, int) {
 	bounds := source.Bounds()
 	sw, sh := bounds.Dx(), bounds.Dy()
@@ -166,12 +255,14 @@ func resize(source image.Image, maxWidth, maxHeight int, crop bool) (image.Image
 	if crop {
 		width, height = maxWidth, maxHeight
 	}
+
 	output := image.NewRGBA(image.Rect(0, 0, width, height))
 	scaledWidth, scaledHeight := int(float64(sw)*scale), int(float64(sh)*scale)
 	offsetX, offsetY := 0, 0
 	if crop {
 		offsetX, offsetY = (scaledWidth-width)/2, (scaledHeight-height)/2
 	}
+
 	for y := 0; y < height; y++ {
 		for x := 0; x < width; x++ {
 			sourceX := int(float64(x+offsetX) / scale)
