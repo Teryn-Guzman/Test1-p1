@@ -1,5 +1,6 @@
 BEGIN;
 DROP TABLE IF EXISTS image_variants;
 DROP TABLE IF EXISTS image_jobs;
+ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_image_id_fkey;
 DROP TABLE IF EXISTS images;
 COMMIT;
