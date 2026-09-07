@@ -10,7 +10,7 @@ import (
 func (app *application) serve() error {
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", app.config.port),
-		Handler:      app.recoverPanic(app.logRequest(app.routes())),
+		Handler:      app.recoverPanic(app.logRequest(app.cors(app.routes()))),
 		IdleTimeout:  time.Minute,
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
