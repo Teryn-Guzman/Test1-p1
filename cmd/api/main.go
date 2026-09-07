@@ -18,6 +18,7 @@ type config struct {
 	env                string
 	reportDelay        time.Duration
 	workerPollInterval time.Duration
+	storageDir         string
 	db                 struct {
 		dsn          string
 		maxOpenConns int
@@ -41,6 +42,7 @@ func main() {
 	flag.StringVar(&cfg.env, "env", "development", "Environment (development|staging|production)")
 	flag.DurationVar(&cfg.reportDelay, "report-delay", 0, "Artificial report-generation delay inside the worker")
 	flag.DurationVar(&cfg.workerPollInterval, "worker-poll-interval", 250*time.Millisecond, "Worker queue-check interval")
+	flag.StringVar(&cfg.storageDir, "storage-dir", "./storage", "Directory for original and generated images")
 
 	flag.StringVar(&cfg.db.dsn, "db-dsn", "", "PostgreSQL DSN")
 
@@ -66,6 +68,10 @@ func main() {
 		logger: logger,
 		models: data.NewModels(db),
 	}
+	if err := os.MkdirAll(cfg.storageDir, 0755); err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
 
 	// Q44: When the app receives SIGINT, it starts shutting down instead of
 	// immediately stopping. The worker is separate from the HTTP server, so it
@@ -86,7 +92,7 @@ func main() {
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	app.workerCancel = cancelWorker
 	defer cancelWorker()
-	app.startReportWorker(workerCtx)
+	app.startImageWorker(workerCtx)
 
 	err = app.serve()
 	if err != nil {

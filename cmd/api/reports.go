@@ -96,6 +96,15 @@ func (app *application) createReportHandler(w http.ResponseWriter, r *http.Reque
 // worker has picked it up, completed means the report finished successfully,
 // and failed means something went wrong while processing it.
 func (app *application) getJobHandler(w http.ResponseWriter, r *http.Request) {
+	imageJob, imageErr := app.models.Images.GetJob(r.Context(), r.PathValue("id"))
+	if imageErr == nil {
+		app.writeJSON(w, http.StatusOK, envelope{"id": imageJob.ID, "image_id": imageJob.ImageID, "status": imageJob.Status, "queued_at": imageJob.QueuedAt, "started_at": imageJob.StartedAt, "completed_at": imageJob.CompletedAt, "failed_at": imageJob.FailedAt, "error": imageJob.Error, "variants": imageJob.Variants}, nil)
+		return
+	}
+	if !errors.Is(imageErr, data.ErrRecordNotFound) {
+		app.serverErrorResponse(w, r, imageErr)
+		return
+	}
 	job, err := app.models.Jobs.GetByPublicID(r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, data.ErrRecordNotFound) {
