@@ -8,6 +8,25 @@ import (
 	"time"
 )
 
+func (app *application) startImageWorker(ctx context.Context) {
+	app.wg.Add(1)
+	go func() {
+		defer app.wg.Done()
+		ticker := time.NewTicker(app.config.workerPollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := app.processNextImageJob(ctx); err != nil && !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, context.Canceled) {
+					app.logger.Error("image worker failed", "error", err)
+				}
+			}
+		}
+	}()
+}
+
 func (app *application) startReportWorker(ctx context.Context) {
 
 	// Q23: The worker is started once when the application starts. I don't want a
@@ -59,7 +78,7 @@ func (app *application) startReportWorker(ctx context.Context) {
 }
 
 func (app *application) processNextReportJob(ctx context.Context) error {
-	
+
 	// Q31: reportDelay is placed in processNextReportJob instead of the POST
 	// handler because I want the POST request to return quickly. Only the worker
 	// should experience the artificial processing delay.
