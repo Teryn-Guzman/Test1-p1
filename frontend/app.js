@@ -28,8 +28,9 @@ function handleFileSelection() {
 		return;
 	}
 
-	if (!isSupportedImage(file) || file.size > 10 * 1024 * 1024) {
-		state.update({ file, previewUrl: '', uploadError: 'Choose a JPEG or PNG no larger than 10 MB.' });
+	const validationError = validateFile(file);
+	if (validationError) {
+		state.update({ file, previewUrl: '', uploadError: validationError });
 		return;
 	}
 
@@ -100,4 +101,20 @@ function isSupportedImage(file) {
 	const extension = file.name.toLowerCase().split('.').pop();
 	return ['image/jpeg', 'image/png', '', 'application/octet-stream'].includes(file.type)
 		&& ['jpg', 'jpeg', 'png'].includes(extension);
+}
+
+function validateFile(file) {
+	if (file.size === 0) return 'The selected file is empty.';
+	if (file.size > 10 * 1024 * 1024) return 'The selected file is larger than the 10 MB limit.';
+
+	const extension = file.name.toLowerCase().split('.').pop();
+	if (!['jpg', 'jpeg', 'png'].includes(extension)) {
+		return 'Unsupported file type. Choose a .jpg, .jpeg, or .png image.';
+	}
+
+	if (!isSupportedImage(file)) {
+		return 'The selected file is not recognized as a JPEG or PNG image.';
+	}
+
+	return '';
 }

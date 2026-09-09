@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -13,18 +14,24 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/teryn-guzman/gatekeeper-asynchronous/internal/data"
 )
 
 // Version 1 enforces a strict upload boundary: the browser may preview the file,
 // but the server is the authority for validation, storage, and durable job creation.
-const maxImageSize int64 = 10 * 1024 * 1024
+const (
+	maxImageSize   int64 = 10 * 1024 * 1024
+	maxRequestSize int64 = maxImageSize + 1024*1024
+)
 
 var (
 	errInvalidImageUpload = errors.New("image upload is too large or malformed")
 	errMissingImageField  = errors.New("image field is required")
+	errEmptyImage         = errors.New("image file is empty")
+	errImageTooLarge      = errors.New("image must be no larger than 10 MB")
+	errUnsupportedImage   = errors.New("only JPEG and PNG images are supported")
+	errUndecodableImage   = errors.New("uploaded file is not a decodable JPEG or PNG")
 )
 
 type uploadedImage struct {
@@ -45,14 +52,21 @@ func randomFilename(ext string) (string, error) {
 // createImageHandler accepts one multipart upload, stores the original to disk,
 // creates the corresponding image + queued job records, and returns a 202 Accepted.
 func (app *application) createImageHandler(w http.ResponseWriter, r *http.Request) {
+	// Limit the complete multipart request as well as the image field. This protects
+	// the handler when a client sends an inaccurate or missing multipart file size.
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestSize)
+
 	uploaded, err := app.parseUploadedImage(r)
 	if err != nil {
 		var clientErr error
 		switch {
-		case errors.Is(err, errInvalidImageUpload):
-			clientErr = errInvalidImageUpload
-		case errors.Is(err, errMissingImageField):
-			clientErr = errMissingImageField
+		case errors.Is(err, errInvalidImageUpload),
+			errors.Is(err, errMissingImageField),
+			errors.Is(err, errEmptyImage),
+			errors.Is(err, errImageTooLarge),
+			errors.Is(err, errUnsupportedImage),
+			errors.Is(err, errUndecodableImage):
+			clientErr = err
 		default:
 			app.serverErrorResponse(w, r, err)
 			return
@@ -87,16 +101,16 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 	headers := make(http.Header)
 	headers.Set("Location", statusURL)
 	app.writeJSON(w, http.StatusAccepted, envelope{
-		"image_id":  imageRecord.ID,
-		"job_id":    job.ID,
-		"status":    job.Status,
+		"image_id":   imageRecord.ID,
+		"job_id":     job.ID,
+		"status":     job.Status,
 		"status_url": statusURL,
 	}, headers)
 }
 
 // parseUploadedImage validates the multipart payload before any durable work is created.
 func (app *application) parseUploadedImage(r *http.Request) (uploadedImage, error) {
-	if err := r.ParseMultipartForm(maxImageSize + 1024*1024); err != nil {
+	if err := r.ParseMultipartForm(maxRequestSize); err != nil {
 		return uploadedImage{}, errInvalidImageUpload
 	}
 
@@ -106,23 +120,32 @@ func (app *application) parseUploadedImage(r *http.Request) (uploadedImage, erro
 	}
 	defer file.Close()
 
-	if header.Size <= 0 || header.Size > maxImageSize {
-		return uploadedImage{}, errors.New("image must be no larger than 10 MB")
+	if header.Size <= 0 {
+		return uploadedImage{}, errEmptyImage
+	}
+	if header.Size > maxImageSize {
+		return uploadedImage{}, errImageTooLarge
 	}
 
 	dataBytes, err := io.ReadAll(io.LimitReader(file, maxImageSize+1))
 	if err != nil {
 		return uploadedImage{}, err
 	}
+	if len(dataBytes) == 0 {
+		return uploadedImage{}, errEmptyImage
+	}
+	if int64(len(dataBytes)) > maxImageSize {
+		return uploadedImage{}, errImageTooLarge
+	}
 
 	contentType := http.DetectContentType(dataBytes)
 	if contentType != "image/jpeg" && contentType != "image/png" {
-		return uploadedImage{}, errors.New("only JPEG and PNG images are supported")
+		return uploadedImage{}, errUnsupportedImage
 	}
 
-	decoded, format, err := image.Decode(strings.NewReader(string(dataBytes)))
+	decoded, format, err := image.Decode(bytes.NewReader(dataBytes))
 	if err != nil || (format != "jpeg" && format != "png") {
-		return uploadedImage{}, errors.New("uploaded file is not a decodable JPEG or PNG")
+		return uploadedImage{}, errUndecodableImage
 	}
 	_ = decoded
 
