@@ -2,8 +2,8 @@
 :root {
   --ink: #16251e;
   --muted: #64736b;
-  --paper: #f4f5ef;
-  --panel: #fffef9;
+  --paper: #c9c8b5;
+  --panel: #f5f1df;
   --line: #d8dfd5;
   --lime: #d7ed67;
   --coral: #ef785f;
@@ -17,7 +17,7 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    radial-gradient(circle at 85% 8%, #e2efbc 0 14%, transparent 35%),
+    radial-gradient(circle at 85% 8%, #b9c995 0 14%, transparent 35%),
     var(--paper);
   color: var(--ink);
   font:
