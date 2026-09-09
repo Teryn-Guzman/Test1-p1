@@ -18,13 +18,14 @@ import (
 	"github.com/teryn-guzman/gatekeeper-asynchronous/internal/data"
 )
 
-// Version 1 enforces a strict upload boundary: the browser may preview the file,
+//  a strict upload boundary: the browser may preview the file,
 // but the server is the authority for validation, storage, and durable job creation.
 const (
 	maxImageSize   int64 = 10 * 1024 * 1024
 	maxRequestSize int64 = maxImageSize + 1024*1024
 )
 
+//validation
 var (
 	errInvalidImageUpload = errors.New("image upload is too large or malformed")
 	errMissingImageField  = errors.New("image field is required")
@@ -34,6 +35,7 @@ var (
 	errUndecodableImage   = errors.New("uploaded file is not a decodable JPEG or PNG")
 )
 
+//temporarily stores information about the uploaded image before it is saved
 type uploadedImage struct {
 	data             []byte
 	originalFilename string
@@ -41,6 +43,7 @@ type uploadedImage struct {
 	storedFilename   string
 }
 
+//creates a secure, random filename for storing images.
 func randomFilename(ext string) (string, error) {
 	var bytes [16]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -75,31 +78,38 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	//store filename
 	if err := app.storeOriginalImage(uploaded); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
+	//This creates the information that will be stored in the images table.
 	imageRecord := &data.Image{
 		OriginalFilename: filepath.Base(uploaded.originalFilename),
 		StoredFilename:   uploaded.storedFilename,
 		MediaType:        uploaded.contentType,
 		Size:             int64(len(uploaded.data)),
 	}
+
+	//creates an empty job object
 	job := &data.ImageJob{}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5e9)
 	defer cancel()
 
+	// both the image and job records are created in a single transaction.
 	if err := app.models.Images.Insert(ctx, imageRecord, job); err != nil {
 		_ = os.Remove(filepath.Join(app.config.storageDir, uploaded.storedFilename))
 		app.serverErrorResponse(w, r, err)
 		return
 	}
 
+	//creates the URL where the client can check the job's status.
 	statusURL := "/v1/jobs/" + job.ID
 	headers := make(http.Header)
 	headers.Set("Location", statusURL)
+	
 	app.writeJSON(w, http.StatusAccepted, envelope{
 		"image_id":   imageRecord.ID,
 		"job_id":     job.ID,
@@ -109,6 +119,7 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // parseUploadedImage validates the multipart payload before any durable work is created.
+//makes sure the uploaded file is actually a valid JPEG or PNG and is within the allowed size.
 func (app *application) parseUploadedImage(r *http.Request) (uploadedImage, error) {
 	if err := r.ParseMultipartForm(maxRequestSize); err != nil {
 		return uploadedImage{}, errInvalidImageUpload
@@ -176,6 +187,7 @@ func (app *application) storeOriginalImage(uploaded uploadedImage) error {
 	return nil
 }
 
+// getVariantHandler serves the requested variant file from disk, or returns a 404 if it is not available.
 func (app *application) getVariantHandler(w http.ResponseWriter, r *http.Request) {
 	variant, err := app.models.Images.Variant(r.Context(), r.PathValue("id"), r.PathValue("name"))
 	if errors.Is(err, data.ErrRecordNotFound) {
