@@ -29,10 +29,23 @@ function renderSelection(state) {
 }
 
 function renderUploadState(state) {
-	elements.button.disabled = state.isSubmitting || !state.file || Boolean(state.uploadError);
-	elements.button.innerHTML = state.isSubmitting
-		? 'Uploading... <span class="spinner"></span>'
-		: 'Process image <span>-></span>';
+	elements.button.disabled = state.isSubmitting || Boolean(state.job) || !state.file || Boolean(state.uploadError);
+	if (state.isSubmitting) {
+		elements.button.innerHTML = 'Uploading... <span class="spinner"></span>';
+		return;
+	}
+
+	if (state.job?.status === 'completed') {
+		elements.button.textContent = 'Image processed';
+		return;
+	}
+
+	if (state.job?.status === 'failed') {
+		elements.button.textContent = 'Processing failed';
+		return;
+	}
+
+	elements.button.textContent = state.job ? 'Processing image...' : 'Process image ->';
 }
 
 function renderJob(state) {

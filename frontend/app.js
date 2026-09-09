@@ -40,7 +40,7 @@ function handleFileSelection() {
 async function submitImage(event) {
 	event.preventDefault();
 	const current = state.get();
-	if (current.isSubmitting || !current.file || current.uploadError) return;
+	if (current.isSubmitting || current.job || !current.file || current.uploadError) return;
 
 	cancelPolling();
 	state.update({ isSubmitting: true, job: { status: 'uploading' }, results: [], resultError: '' });
