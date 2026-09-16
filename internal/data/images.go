@@ -111,21 +111,27 @@ func (m ImageModel) Original(ctx context.Context, imageID string) (Image, error)
 	}
 	return image, err
 }
+
 // AddVariant saves one generated output file and its dimension metadata.
 func (m ImageModel) AddVariant(ctx context.Context, imageID, name, filename string, width, height int, size int64) error {
 	_, err := m.DB.ExecContext(ctx, `INSERT INTO image_variants (image_id,name,stored_filename,width,height,size_bytes) VALUES ($1,$2,$3,$4,$5,$6)`, imageID, name, filename, width, height, size)
 	return err
 }
+
 // Complete marks the job as finished once all variants have been created.
 func (m ImageModel) Complete(ctx context.Context, id string) error {
 	_, err := m.DB.ExecContext(ctx, `UPDATE image_jobs SET status='completed',completed_at=now() WHERE id=$1`, id)
 	return err
 }
+
 // Fail records a safe error message when image processing cannot complete.
 func (m ImageModel) Fail(ctx context.Context, id, message string) error {
+	// Keep worker failures durable and client-safe. GET /v1/jobs/{id} can then
+	// return the failed job with its error message and failed_at timestamp.
 	_, err := m.DB.ExecContext(ctx, `UPDATE image_jobs SET status='failed',error_message=$2,failed_at=now() WHERE id=$1`, id, message)
 	return err
 }
+
 // Variant looks up a single generated output by image ID and variant name.
 func (m ImageModel) Variant(ctx context.Context, imageID, name string) (Variant, error) {
 	var v Variant

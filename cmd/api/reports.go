@@ -98,6 +98,8 @@ func (app *application) createReportHandler(w http.ResponseWriter, r *http.Reque
 func (app *application) getJobHandler(w http.ResponseWriter, r *http.Request) {
 	imageJob, imageErr := app.models.Images.GetJob(r.Context(), r.PathValue("id"))
 	if imageErr == nil {
+		// A failed image job is still a successful status lookup, so this returns
+		// HTTP 200 with status=failed and the worker's safe error message.
 		app.writeJSON(w, http.StatusOK, envelope{"id": imageJob.ID, "image_id": imageJob.ImageID, "status": imageJob.Status, "queued_at": imageJob.QueuedAt, "started_at": imageJob.StartedAt, "completed_at": imageJob.CompletedAt, "failed_at": imageJob.FailedAt, "error": imageJob.Error, "variants": imageJob.Variants}, nil)
 		return
 	}

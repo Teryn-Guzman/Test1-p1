@@ -76,7 +76,9 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	//store filename
+	// A file identified as JPEG or PNG is stored and queued even if its bytes
+	// are corrupt. The worker performs the decode so the failure becomes a
+	// durable job result instead of disappearing during upload acceptance.
 	if err := app.storeOriginalImage(uploaded); err != nil {
 		app.serverErrorResponse(w, r, err)
 		return
@@ -96,7 +98,8 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 	ctx, cancel := context.WithTimeout(r.Context(), 5e9)
 	defer cancel()
 
-	// both the image and job records are created in a single transaction.
+	// Both records are created in one transaction. This means a corrupt image
+	// still has an image row and a queued job that the worker can later fail.
 	if err := app.models.Images.Insert(ctx, imageRecord, job); err != nil {
 		_ = os.Remove(filepath.Join(app.config.storageDir, uploaded.storedFilename))
 		app.serverErrorResponse(w, r, err)
@@ -108,6 +111,8 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 	headers := make(http.Header)
 	headers.Set("Location", statusURL)
 
+	// 202 means acceptance succeeded and processing is still asynchronous.
+	// The client follows statusURL to observe queued, processing, or failed.
 	app.writeJSON(w, http.StatusAccepted, envelope{
 		"image_id":   imageRecord.ID,
 		"job_id":     job.ID,
@@ -117,7 +122,8 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 }
 
 // parseUploadedImage validates the multipart payload before durable work is created.
-// It accepts files identified as JPEG or PNG so the worker can record decode failures.
+// It accepts files identified as JPEG or PNG without decoding them. The
+// worker owns decode validation so corrupt uploads remain observable jobs.
 func (app *application) parseUploadedImage(r *http.Request) (uploadedImage, error) {
 	if err := r.ParseMultipartForm(maxRequestSize); err != nil {
 		return uploadedImage{}, errInvalidImageUpload
@@ -227,6 +233,8 @@ func (app *application) processNextImageJob(ctx context.Context) error {
 
 	decoded, _, err := image.Decode(source)
 	if err != nil {
+		// A corrupt file reaches this point after acceptance. Record a safe client
+		// message and failed_at in the job table instead of marking it completed.
 		_ = app.models.Images.Fail(ctx, job.ID, "original image could not be decoded")
 		return err
 	}
