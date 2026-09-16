@@ -1,5 +1,7 @@
 const elements = {
 	button: document.querySelector('#process-button'),
+	input: document.querySelector('#image-input'),
+	changeImageButton: document.querySelector('#change-image-button'),
 	selection: document.querySelector('#selection'),
 	preview: document.querySelector('#preview'),
 	filename: document.querySelector('#filename'),
@@ -19,7 +21,13 @@ export function render(state) {
 
 function renderSelection(state) {
 	const { file, previewUrl } = state;
+	const hasValidFile = Boolean(file) && !state.uploadError;
+	const pickerHidden = hasValidFile && !state.choosingDifferentImage && !state.isSubmitting;
+	const showChangeButton = hasValidFile && !state.choosingDifferentImage;
 	elements.uploadError.textContent = state.uploadError;
+	elements.input.disabled = state.isSubmitting || (hasValidFile && !state.choosingDifferentImage);
+	elements.input.closest('.dropzone')?.classList.toggle('hidden', pickerHidden);
+	elements.changeImageButton.classList.toggle('hidden', !showChangeButton);
 	elements.selection.classList.toggle('hidden', !file || Boolean(state.uploadError));
 	if (!file || !previewUrl) return;
 

@@ -4,6 +4,7 @@ import { bindTryAgain, render } from './render.js';
 
 const form = document.querySelector('#upload-form');
 const input = document.querySelector('#image-input');
+const changeImageButton = document.querySelector('#change-image-button');
 const state = new AppState();
 let pollController = null;
 let pollTimer = null;
@@ -15,8 +16,28 @@ state.on('change', nextState => {
 render(state.get());
 
 input.addEventListener('change', handleFileSelection);
+changeImageButton.addEventListener('click', chooseDifferentImage);
 form.addEventListener('submit', submitImage);
 window.addEventListener('beforeunload', cancelPolling);
+
+function chooseDifferentImage() {
+	cancelPolling();
+	input.value = '';
+	state.update({
+		file: null,
+		previewUrl: '',
+		uploadError: '',
+		isSubmitting: false,
+		job: null,
+		results: [],
+		resultError: '',
+		observing: false,
+		choosingDifferentImage: true,
+	});
+	requestAnimationFrame(() => {
+		input.click();
+	});
+}
 
 function handleFileSelection() {
 	const file = input.files[0] || null;
@@ -24,17 +45,17 @@ function handleFileSelection() {
 	state.resetJob();
 
 	if (!file) {
-		state.update({ file: null, previewUrl: '', uploadError: '' });
+		state.update({ file: null, previewUrl: '', uploadError: '', choosingDifferentImage: false });
 		return;
 	}
 
 	const validationError = validateFile(file);
 	if (validationError) {
-		state.update({ file, previewUrl: '', uploadError: validationError });
+		state.update({ file, previewUrl: '', uploadError: validationError, choosingDifferentImage: false });
 		return;
 	}
 
-	state.update({ file, previewUrl: URL.createObjectURL(file), uploadError: '' });
+	state.update({ file, previewUrl: URL.createObjectURL(file), uploadError: '', choosingDifferentImage: false });
 }
 
 async function submitImage(event) {

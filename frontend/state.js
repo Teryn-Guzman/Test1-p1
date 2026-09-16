@@ -9,6 +9,7 @@ const initialState = {
 	results: [],
 	resultError: '',
 	observing: false,
+	choosingDifferentImage: false,
 };
 
 export class AppState extends EventEmitter {
