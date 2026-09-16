@@ -1,5 +1,8 @@
 include .envrc
 
+steps ?= 1
+image_processing_delay ?= 0
+
 # ==================================================================================== #
 # HELPERS
 # ==================================================================================== #
@@ -21,7 +24,7 @@ confirm:
 ## run/api: run the cmd/api application
 .PHONY: run/api
 run/api:
-	go run ./cmd/api -db-dsn=${GATEKEEPER_DB_DSN}
+	go run ./cmd/api -db-dsn=${GATEKEEPER_DB_DSN} -image-processing-delay=${image_processing_delay}
 
 ## db/psql: connect to the database using psql
 .PHONY: db/psql
@@ -43,9 +46,9 @@ db/migrations/up: confirm
 
 ## db/migrations/down: roll back the last database migration
 .PHONY: db/migrations/down
-db/migrations/down: confirm
-	@echo 'Rolling back last migration...'
-	migrate -path ./migrations -database ${GATEKEEPER_DB_DSN} down 1
+db/migrations/down:
+	@echo 'Rolling back $(steps) migration(s)...'
+	migrate -path ./migrations -database "${GATEKEEPER_DB_DSN}" down $(steps)
 
 ## db/migrations/force version=$1: force the migration version (to fix dirty state)
 .PHONY: db/migrations/force

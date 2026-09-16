@@ -14,12 +14,12 @@ import (
 )
 
 type config struct {
-	port               int
-	env                string
-	reportDelay        time.Duration
-	workerPollInterval time.Duration
-	storageDir         string
-	db                 struct {
+	port                 int
+	env                  string
+	workerPollInterval   time.Duration
+	imageProcessingDelay time.Duration
+	storageDir           string
+	db                   struct {
 		dsn          string
 		maxOpenConns int
 		maxIdleConns int
@@ -40,8 +40,8 @@ func main() {
 
 	flag.IntVar(&cfg.port, "port", 4000, "API server port")
 	flag.StringVar(&cfg.env, "env", "development", "Environment (development|staging|production)")
-	flag.DurationVar(&cfg.reportDelay, "report-delay", 0, "Artificial report-generation delay inside the worker")
 	flag.DurationVar(&cfg.workerPollInterval, "worker-poll-interval", 250*time.Millisecond, "Worker queue-check interval")
+	flag.DurationVar(&cfg.imageProcessingDelay, "image-processing-delay", 0, "Artificial delay inside the image worker")
 	flag.StringVar(&cfg.storageDir, "storage-dir", "./storage", "Directory for original and generated images")
 
 	flag.StringVar(&cfg.db.dsn, "db-dsn", "", "PostgreSQL DSN")
@@ -69,6 +69,10 @@ func main() {
 		models: data.NewModels(db),
 	}
 	if err := os.MkdirAll(cfg.storageDir, 0755); err != nil {
+		logger.Error(err.Error())
+		os.Exit(1)
+	}
+	if err := os.MkdirAll(app.variantStorageDir(), 0755); err != nil {
 		logger.Error(err.Error())
 		os.Exit(1)
 	}

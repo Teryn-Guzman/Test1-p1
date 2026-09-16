@@ -5,10 +5,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"image"
-	_ "image/jpeg"
-	"image/png"
-	_ "image/png"
 	"io"
 	"net/http"
 	"os"
@@ -40,6 +36,10 @@ type uploadedImage struct {
 	originalFilename string
 	contentType      string
 	storedFilename   string
+}
+
+func (app *application) variantStorageDir() string {
+	return filepath.Join(app.config.storageDir, "variants")
 }
 
 // creates a secure, random filename for storing images.
@@ -107,7 +107,7 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	//creates the URL where the client can check the job's status.
-	statusURL := "/v1/jobs/" + job.ID
+	statusURL := "/v1/jobs/" + job.PublicID
 	headers := make(http.Header)
 	headers.Set("Location", statusURL)
 
@@ -115,7 +115,7 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 	// The client follows statusURL to observe queued, processing, or failed.
 	app.writeJSON(w, http.StatusAccepted, envelope{
 		"image_id":   imageRecord.ID,
-		"job_id":     job.ID,
+		"job_id":     job.PublicID,
 		"status":     job.Status,
 		"status_url": statusURL,
 	}, headers)
@@ -207,114 +207,30 @@ func (app *application) getVariantHandler(w http.ResponseWriter, r *http.Request
 		app.serverErrorResponse(w, r, err)
 		return
 	}
-	http.ServeFile(w, r, filepath.Join(app.config.storageDir, variant.Filename))
+	http.ServeFile(w, r, filepath.Join(app.variantStorageDir(), variant.Filename))
 }
 
-// processNextImageJob is the worker-side execution path. It claims a queued image job,
-// reads the original, generates the required variants, and marks the job complete.
-func (app *application) processNextImageJob(ctx context.Context) error {
-	job, err := app.models.Images.ClaimNext(ctx)
+// getJobHandler returns the durable image job state for the public polling ID.
+func (app *application) getJobHandler(w http.ResponseWriter, r *http.Request) {
+	imageJob, err := app.models.Images.GetJob(r.Context(), r.PathValue("id"))
+	if errors.Is(err, data.ErrRecordNotFound) {
+		app.notFoundResponse(w, r)
+		return
+	}
 	if err != nil {
-		return err
+		app.serverErrorResponse(w, r, err)
+		return
 	}
 
-	imageRecord, err := app.models.Images.Original(ctx, job.ImageID)
-	if err != nil {
-		_ = app.models.Images.Fail(ctx, job.ID, "original image is unavailable")
-		return err
-	}
-
-	source, err := os.Open(filepath.Join(app.config.storageDir, imageRecord.StoredFilename))
-	if err != nil {
-		_ = app.models.Images.Fail(ctx, job.ID, "original image is unavailable")
-		return err
-	}
-	defer source.Close()
-
-	decoded, _, err := image.Decode(source)
-	if err != nil {
-		// A corrupt file reaches this point after acceptance. Record a safe client
-		// message and failed_at in the job table instead of marking it completed.
-		_ = app.models.Images.Fail(ctx, job.ID, "original image could not be decoded")
-		return err
-	}
-
-	// The all-or-nothing contract requires all three variants before the job is complete.
-	for _, profile := range []struct {
-		name          string
-		width, height int
-		crop          bool
-	}{
-		{"thumbnail", 150, 150, true},
-		{"preview", 800, 600, false},
-		{"display", 1200, 900, false},
-	} {
-		output, width, height := resize(decoded, profile.width, profile.height, profile.crop)
-		filename, err := randomFilename(".png")
-		if err != nil {
-			_ = app.models.Images.Fail(ctx, job.ID, "could not create output")
-			return err
-		}
-
-		path := filepath.Join(app.config.storageDir, filename)
-		f, err := os.Create(path)
-		if err != nil {
-			_ = app.models.Images.Fail(ctx, job.ID, "could not store output")
-			return err
-		}
-
-		if err = png.Encode(f, output); err != nil {
-			_ = f.Close()
-			_ = app.models.Images.Fail(ctx, job.ID, "could not encode output")
-			return err
-		}
-		if err := f.Close(); err != nil {
-			_ = app.models.Images.Fail(ctx, job.ID, "could not close output file")
-			return err
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			_ = app.models.Images.Fail(ctx, job.ID, "could not read output metadata")
-			return err
-		}
-
-		if err := app.models.Images.AddVariant(ctx, job.ImageID, profile.name, filename, width, height, info.Size()); err != nil {
-			_ = app.models.Images.Fail(ctx, job.ID, "could not record output")
-			return err
-		}
-	}
-
-	return app.models.Images.Complete(ctx, job.ID)
-}
-
-// resize handles the required variant sizing rules while preserving aspect ratio
-// unless the variant explicitly requires a crop, such as the thumbnail output.
-func resize(source image.Image, maxWidth, maxHeight int, crop bool) (image.Image, int, int) {
-	bounds := source.Bounds()
-	sw, sh := bounds.Dx(), bounds.Dy()
-	scale := float64(maxWidth) / float64(sw)
-	if value := float64(maxHeight) / float64(sh); (crop && value > scale) || (!crop && value < scale) {
-		scale = value
-	}
-	width, height := int(float64(sw)*scale), int(float64(sh)*scale)
-	if crop {
-		width, height = maxWidth, maxHeight
-	}
-
-	output := image.NewRGBA(image.Rect(0, 0, width, height))
-	scaledWidth, scaledHeight := int(float64(sw)*scale), int(float64(sh)*scale)
-	offsetX, offsetY := 0, 0
-	if crop {
-		offsetX, offsetY = (scaledWidth-width)/2, (scaledHeight-height)/2
-	}
-
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			sourceX := int(float64(x+offsetX) / scale)
-			sourceY := int(float64(y+offsetY) / scale)
-			output.Set(x, y, source.At(bounds.Min.X+sourceX, bounds.Min.Y+sourceY))
-		}
-	}
-	return output, width, height
+	app.writeJSON(w, http.StatusOK, envelope{
+		"id":           imageJob.PublicID,
+		"image_id":     imageJob.ImageID,
+		"status":       imageJob.Status,
+		"queued_at":    imageJob.QueuedAt,
+		"started_at":   imageJob.StartedAt,
+		"completed_at": imageJob.CompletedAt,
+		"failed_at":    imageJob.FailedAt,
+		"error":        imageJob.Error,
+		"variants":     imageJob.Variants,
+	}, nil)
 }

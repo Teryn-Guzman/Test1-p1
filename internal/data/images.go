@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+var ErrRecordNotFound = errors.New("record not found")
+
 // Image stores the uploaded original file and its metadata.
 type Image struct {
 	ID, OriginalFilename, StoredFilename, MediaType string
@@ -16,6 +18,7 @@ type Image struct {
 // ImageJob tracks the lifecycle of an accepted upload from queued to completed/failed.
 type ImageJob struct {
 	ID          string     `json:"id"`
+	PublicID    string     `json:"public_id"`
 	ImageID     string     `json:"image_id"`
 	Status      string     `json:"status"`
 	Error       *string    `json:"error,omitempty"`
@@ -48,7 +51,7 @@ func (m ImageModel) Insert(ctx context.Context, image *Image, job *ImageJob) err
 	if err := tx.QueryRowContext(ctx, `INSERT INTO images (original_filename, stored_filename, media_type, size_bytes) VALUES ($1,$2,$3,$4) RETURNING id`, image.OriginalFilename, image.StoredFilename, image.MediaType, image.Size).Scan(&image.ID); err != nil {
 		return err
 	}
-	if err := tx.QueryRowContext(ctx, `INSERT INTO image_jobs (image_id) VALUES ($1) RETURNING id, status, queued_at`, image.ID).Scan(&job.ID, &job.Status, &job.QueuedAt); err != nil {
+	if err := tx.QueryRowContext(ctx, `INSERT INTO image_jobs (image_id) VALUES ($1) RETURNING id, public_id, status, queued_at`, image.ID).Scan(&job.ID, &job.PublicID, &job.Status, &job.QueuedAt); err != nil {
 		return err
 	}
 	job.ImageID = image.ID
@@ -79,7 +82,7 @@ func (m ImageModel) ClaimNext(ctx context.Context) (*ImageJob, error) {
 // GetJob returns the current job state together with any generated variant metadata.
 func (m ImageModel) GetJob(ctx context.Context, id string) (*ImageJob, error) {
 	job := &ImageJob{}
-	err := m.DB.QueryRowContext(ctx, `SELECT id,image_id,status,error_message,queued_at,started_at,completed_at,failed_at FROM image_jobs WHERE id=$1`, id).Scan(&job.ID, &job.ImageID, &job.Status, &job.Error, &job.QueuedAt, &job.StartedAt, &job.CompletedAt, &job.FailedAt)
+	err := m.DB.QueryRowContext(ctx, `SELECT id,public_id,image_id,status,error_message,queued_at,started_at,completed_at,failed_at FROM image_jobs WHERE public_id=$1`, id).Scan(&job.ID, &job.PublicID, &job.ImageID, &job.Status, &job.Error, &job.QueuedAt, &job.StartedAt, &job.CompletedAt, &job.FailedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrRecordNotFound
 	}
