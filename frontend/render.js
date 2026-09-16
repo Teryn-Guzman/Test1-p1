@@ -22,8 +22,8 @@ export function render(state) {
 function renderSelection(state) {
 	const { file, previewUrl } = state;
 	const hasValidFile = Boolean(file) && !state.uploadError;
-	const pickerHidden = hasValidFile && !state.choosingDifferentImage && !state.isSubmitting;
-	const showChangeButton = hasValidFile && !state.choosingDifferentImage;
+	const pickerHidden = hasValidFile || state.isSubmitting || state.choosingDifferentImage;
+	const showChangeButton = hasValidFile || state.choosingDifferentImage;
 	elements.uploadError.textContent = state.uploadError;
 	elements.input.disabled = state.isSubmitting || (hasValidFile && !state.choosingDifferentImage);
 	elements.input.closest('.dropzone')?.classList.toggle('hidden', pickerHidden);

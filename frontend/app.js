@@ -23,6 +23,8 @@ window.addEventListener('beforeunload', cancelPolling);
 function chooseDifferentImage() {
 	cancelPolling();
 	input.value = '';
+	input.disabled = false;
+	input.click();
 	state.update({
 		file: null,
 		previewUrl: '',
@@ -33,9 +35,6 @@ function chooseDifferentImage() {
 		resultError: '',
 		observing: false,
 		choosingDifferentImage: true,
-	});
-	requestAnimationFrame(() => {
-		input.click();
 	});
 }
 

@@ -21,7 +21,7 @@ body {
     var(--paper);
   color: var(--ink);
   font:
-    15px "DM Sans",
+    17px "DM Sans",
     sans-serif;
 }
 h1,
@@ -37,7 +37,7 @@ h1 {
 }
 h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.45rem;
 }
 p {
   margin: 0;
@@ -67,19 +67,19 @@ p {
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  padding: 28px;
+  padding: 32px;
   box-shadow: 0 12px 35px #34452b0b;
 }
 .panel-heading {
   display: flex;
   gap: 14px;
   align-items: center;
-  margin-bottom: 26px;
+  margin-bottom: 30px;
 }
 .step {
   background: var(--lime);
-  padding: 7px 9px;
-  font: 700 0.75rem "Space Grotesk";
+  padding: 9px 11px;
+  font: 700 0.85rem "Space Grotesk";
 }
 .image-actions {
   display: flex;
@@ -88,7 +88,7 @@ p {
 }
 .dropzone {
   flex: 1;
-  min-height: 190px;
+  min-height: 240px;
   border: 1px dashed #aab8a6;
   display: flex;
   align-items: center;
@@ -117,6 +117,13 @@ p {
 .job-content > span,
 .result span {
   color: var(--muted);
+  font-size: 1rem;
+}
+.dropzone strong {
+  font-size: 1.2rem;
+}
+.dropzone small {
+  margin-top: 3px;
 }
 .job-content > .job-error {
   color: #a93624;
@@ -128,23 +135,23 @@ p {
   color: #8f2c1c;
 }
 .drop-icon {
-  font-size: 2rem;
+  font-size: 2.6rem;
   font-weight: 300;
 }
 .selection {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 16px 0;
+  gap: 18px;
+  padding: 20px 0;
 }
 .selection img {
-  width: 120px;
-  height: 120px;
+  width: 140px;
+  height: 140px;
   object-fit: cover;
 }
 .selection p {
   margin-top: 5px;
-  font-size: 0.85rem;
+  font-size: 1rem;
 }
 .hidden {
   display: none !important;
@@ -153,8 +160,9 @@ button {
   border: 0;
   background: var(--ink);
   color: white;
-  padding: 15px 18px;
-  font: 700 1rem "DM Sans";
+  min-height: 56px;
+  padding: 16px 20px;
+  font: 700 1.1rem "DM Sans";
   cursor: pointer;
   width: 100%;
   margin-top: 14px;
@@ -201,13 +209,17 @@ button:disabled {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   text-align: center;
+}
+.empty-state strong,
+.job-content > strong {
+  font-size: 1.15rem;
 }
 .job-content {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 12px;
   min-height: 235px;
 }
 .status-row {
@@ -231,7 +243,7 @@ button:disabled {
   background: #ffd9d2;
 }
 .status-row code {
-  font-size: 0.7rem;
+  font-size: 0.82rem;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -242,7 +254,7 @@ button:disabled {
   margin-top: auto;
   border-top: 1px solid var(--line);
   padding-top: 15px;
-  font-size: 0.82rem;
+  font-size: 0.95rem;
 }
 .timeline span:before {
   content: "○";
@@ -338,14 +350,17 @@ button:disabled {
     margin-bottom: 36px;
   }
   .panel {
-    padding: 20px;
+    padding: 24px;
+  }
+  .dropzone {
+    min-height: 210px;
   }
   .selection {
     align-items: flex-start;
   }
   .selection img {
-    width: 96px;
-    height: 96px;
-    flex: 0 0 96px;
+    width: 110px;
+    height: 110px;
+    flex: 0 0 110px;
   }
 }
