@@ -81,7 +81,10 @@ function renderJob(state) {
 	const id = escapeHTML(job.id || '');
 	const message = escapeHTML(job.error || 'The image could not be processed.');
 	elements.jobCard.className = `job-content ${failed ? 'failed' : ''}`;
-	elements.jobCard.innerHTML = `<div class="status-row"><span class="badge ${status}">${status}</span>${id ? `<code>${id}</code>` : ''}</div><strong>${failed ? 'Processing failed' : job.status === 'completed' ? 'Processing complete' : 'Generating variants'}</strong><span>${failed ? message : job.status === 'completed' ? 'All three variants are ready.' : 'Checking status automatically / Every 1 second'}</span><div class="timeline"><span class="done">Upload accepted</span><span class="done">Original stored</span><span class="${job.status === 'processing' ? 'current' : job.status === 'completed' ? 'done' : ''}">Generating variants</span><span class="${job.status === 'completed' ? 'done' : ''}">Complete</span></div>`;
+	const detail = failed
+		? `<span class="job-error"><strong>Error:</strong> ${message}</span>`
+		: `<span>${job.status === 'completed' ? 'All three variants are ready.' : 'Checking status automatically / Every 1 second'}</span>`;
+	elements.jobCard.innerHTML = `<div class="status-row"><span class="badge ${status}">${status}</span>${id ? `<code>${id}</code>` : ''}</div><strong>${failed ? 'Processing failed' : job.status === 'completed' ? 'Processing complete' : 'Generating variants'}</strong>${detail}<div class="timeline"><span class="done">Upload accepted</span><span class="done">Original stored</span><span class="${job.status === 'processing' ? 'current' : job.status === 'completed' ? 'done' : ''}">Generating variants</span><span class="${job.status === 'completed' ? 'done' : ''}">Complete</span></div>`;
 }
 
 function renderResults(state) {

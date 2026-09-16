@@ -118,6 +118,15 @@ p {
 .result span {
   color: var(--muted);
 }
+.job-content > .job-error {
+  color: #a93624;
+  background: #ffe6df;
+  border-left: 3px solid var(--coral);
+  padding: 10px 12px;
+}
+.job-error strong {
+  color: #8f2c1c;
+}
 .drop-icon {
   font-size: 2rem;
   font-weight: 300;

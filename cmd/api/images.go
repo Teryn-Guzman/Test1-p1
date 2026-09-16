@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -14,28 +13,28 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/teryn-guzman/gatekeeper-asynchronous/internal/data"
 )
 
-//  a strict upload boundary: the browser may preview the file,
-// but the server is the authority for validation, storage, and durable job creation.
+// The server is the authority for upload limits, storage, and durable job creation.
+// Decode validation happens in the worker so corrupt image jobs are observable.
 const (
 	maxImageSize   int64 = 10 * 1024 * 1024
 	maxRequestSize int64 = maxImageSize + 1024*1024
 )
 
-//validation
+// validation
 var (
 	errInvalidImageUpload = errors.New("image upload is too large or malformed")
 	errMissingImageField  = errors.New("image field is required")
 	errEmptyImage         = errors.New("image file is empty")
 	errImageTooLarge      = errors.New("image must be no larger than 10 MB")
 	errUnsupportedImage   = errors.New("only JPEG and PNG images are supported")
-	errUndecodableImage   = errors.New("uploaded file is not a decodable JPEG or PNG")
 )
 
-//temporarily stores information about the uploaded image before it is saved
+// temporarily stores information about the uploaded image before it is saved
 type uploadedImage struct {
 	data             []byte
 	originalFilename string
@@ -43,7 +42,7 @@ type uploadedImage struct {
 	storedFilename   string
 }
 
-//creates a secure, random filename for storing images.
+// creates a secure, random filename for storing images.
 func randomFilename(ext string) (string, error) {
 	var bytes [16]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -67,8 +66,7 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 			errors.Is(err, errMissingImageField),
 			errors.Is(err, errEmptyImage),
 			errors.Is(err, errImageTooLarge),
-			errors.Is(err, errUnsupportedImage),
-			errors.Is(err, errUndecodableImage):
+			errors.Is(err, errUnsupportedImage):
 			clientErr = err
 		default:
 			app.serverErrorResponse(w, r, err)
@@ -109,7 +107,7 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 	statusURL := "/v1/jobs/" + job.ID
 	headers := make(http.Header)
 	headers.Set("Location", statusURL)
-	
+
 	app.writeJSON(w, http.StatusAccepted, envelope{
 		"image_id":   imageRecord.ID,
 		"job_id":     job.ID,
@@ -118,8 +116,8 @@ func (app *application) createImageHandler(w http.ResponseWriter, r *http.Reques
 	}, headers)
 }
 
-// parseUploadedImage validates the multipart payload before any durable work is created.
-//makes sure the uploaded file is actually a valid JPEG or PNG and is within the allowed size.
+// parseUploadedImage validates the multipart payload before durable work is created.
+// It accepts files identified as JPEG or PNG so the worker can record decode failures.
 func (app *application) parseUploadedImage(r *http.Request) (uploadedImage, error) {
 	if err := r.ParseMultipartForm(maxRequestSize); err != nil {
 		return uploadedImage{}, errInvalidImageUpload
@@ -149,16 +147,21 @@ func (app *application) parseUploadedImage(r *http.Request) (uploadedImage, erro
 		return uploadedImage{}, errImageTooLarge
 	}
 
-	contentType := http.DetectContentType(dataBytes)
+	detectedType := http.DetectContentType(dataBytes)
+	contentType := header.Header.Get("Content-Type")
 	if contentType != "image/jpeg" && contentType != "image/png" {
-		return uploadedImage{}, errUnsupportedImage
+		contentType = detectedType
 	}
-
-	decoded, format, err := image.Decode(bytes.NewReader(dataBytes))
-	if err != nil || (format != "jpeg" && format != "png") {
-		return uploadedImage{}, errUndecodableImage
+	if contentType != "image/jpeg" && contentType != "image/png" {
+		switch filepath.Ext(strings.ToLower(header.Filename)) {
+		case ".jpg", ".jpeg":
+			contentType = "image/jpeg"
+		case ".png":
+			contentType = "image/png"
+		default:
+			return uploadedImage{}, errUnsupportedImage
+		}
 	}
-	_ = decoded
 
 	ext := ".png"
 	if contentType == "image/jpeg" {
