@@ -1,23 +1,121 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="favicon.svg" type="image/svg+xml"><title>ImageLab</title><link rel="stylesheet" href="style.css?v=6"></head>
-<body>
-<main class="shell">
-	<header><p class="eyebrow">IMAGE PROCESSING</p><h1>Make more from your image.</h1><p class="lede">Choose an image, and get three ready-to-use versions.</p></header>
-	<section class="workspace">
-		<form id="upload-form" class="panel upload-panel">
-			<div class="panel-heading"><span class="step">01</span><h2>Choose an image</h2></div>
-			<div class="image-actions">
-				<label class="dropzone" for="image-input"><input id="image-input" type="file" accept="image/jpeg,image/png"><span class="drop-icon">+</span><strong>Select a JPEG or PNG</strong><small>Maximum 10 MB</small></label>
-				<button id="change-image-button" type="button" class="secondary hidden">Choose a different image</button>
-			</div>
-			<div id="selection" class="selection hidden"><img id="preview" alt="Local preview"><div><strong id="filename"></strong><p id="file-meta"></p></div></div>
-			<button id="process-button" type="submit" disabled>Process image <span>-></span></button>
-			<p id="upload-error" class="error" role="alert"></p>
-		</form>
-		<section class="panel job-panel"><div class="panel-heading"><span class="step">02</span><h2>Processing status</h2></div><div id="job-card" class="empty-state"><strong>No active job</strong><span>Submit an image to begin.</span></div></section>
-	</section>
-	<section class="results-section"><div class="section-heading"><div><p class="eyebrow">03 / OUTPUT</p><h2>Generated images</h2></div><span id="result-count" class="count">0 files</span></div><div id="results" class="results empty-state"><strong>No images generated yet</strong><span>Completed variants will appear here.</span></div></section>
-</main><script type="module" src="app.js?v=5"></script>
-</body></html>
 
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width,initial-scale=1">
+	<link rel="icon" href="favicon.svg" type="image/svg+xml">
+	<title>ImageLab</title>
+	<link rel="stylesheet" href="style.css?v=10">
+</head>
+
+<body>
+	<nav class="topbar">
+		<div class="brand">
+			<span class="brand-mark" aria-hidden="true">
+				<img src="favicon.svg" alt="">
+			</span>
+			<span class="brand-text">
+				<strong>ImageLab</strong>
+			</span>
+		</div>
+	</nav>
+
+	<main class="shell">
+		<header class="page-head">
+			<h1>Process an image</h1>
+			<p>Upload an image and generate optimized variants in the background.</p>
+		</header>
+
+		<div class="workspace">
+			<form id="upload-form" class="card upload-card">
+				<div class="card-head">
+					<span class="card-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+							stroke-linecap="round" stroke-linejoin="round">
+							<polyline points="16 16 12 12 8 16" />
+							<line x1="12" y1="12" x2="12" y2="21" />
+							<path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+						</svg>
+					</span>
+					<h2>Upload image</h2>
+				</div>
+
+				<div class="dropframe">
+					<label class="dropzone" for="image-input">
+						<input id="image-input" type="file" accept="image/jpeg,image/png">
+						<span class="drop-icon" aria-hidden="true">+</span>
+						<strong>Select a JPEG or PNG</strong>
+						<small>Maximum 10 MB</small>
+					</label>
+
+					<div id="selection" class="selection hidden">
+						<img id="preview" alt="Preview of the selected image">
+						<div class="selection-meta">
+							<strong id="filename"></strong>
+							<p id="file-meta"></p>
+						</div>
+					</div>
+				</div>
+
+				<div class="submit-row">
+					<button id="process-button" type="submit" disabled>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+							stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+							<polyline points="17 8 12 3 7 8" />
+							<line x1="12" y1="3" x2="12" y2="15" />
+						</svg>
+						<span class="button-label">Process image</span>
+					</button>
+					<button id="change-image-button" type="button" class="change-button hidden">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+							stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+							<polyline points="23 4 23 10 17 10" />
+							<polyline points="1 20 1 14 7 14" />
+							<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+						</svg>
+						Choose another image
+					</button>
+				</div>
+
+				<p id="upload-error" class="error" role="alert"></p>
+			</form>
+
+			<section class="card job-card">
+				<div class="card-head">
+					<span class="card-icon" aria-hidden="true">
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+							stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="12" cy="12" r="3" />
+							<path
+								d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+						</svg>
+					</span>
+					<h2>Processing job</h2>
+				</div>
+				<div id="job-card" class="job-body"></div>
+			</section>
+		</div>
+
+		<section class="card results-card">
+			<div class="card-head">
+				<span class="card-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+						stroke-linecap="round" stroke-linejoin="round">
+						<rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+						<circle cx="8.5" cy="8.5" r="1.5" />
+						<polyline points="21 15 16 10 5 21" />
+					</svg>
+				</span>
+				<h2>Generated images</h2>
+				<span id="result-count" class="count">0 files</span>
+			</div>
+			<div id="results" class="results"></div>
+		</section>
+	</main>
+
+	<script type="module" src="app.js?v=8"></script>
+</body>
+
+</html>

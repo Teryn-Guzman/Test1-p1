@@ -93,7 +93,10 @@ async function pollJob() {
 		const job = await getJob(current.job.statusUrl, pollController.signal);
 		state.update({
 			job: { ...current.job, ...job },
-			results: job.status === 'completed' ? job.variants || [] : [],
+			// The backend records each variant as soon as it's generated, so show
+			// whatever has arrived so far instead of waiting for job.status to
+			// reach "completed".
+			results: job.variants || [],
 			observing: job.status === 'queued' || job.status === 'processing',
 			resultError: '',
 		});
