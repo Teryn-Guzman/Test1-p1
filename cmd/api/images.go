@@ -153,20 +153,25 @@ func (app *application) parseUploadedImage(r *http.Request) (uploadedImage, erro
 		return uploadedImage{}, errImageTooLarge
 	}
 
-	detectedType := http.DetectContentType(dataBytes)
-	contentType := header.Header.Get("Content-Type")
-	if contentType != "image/jpeg" && contentType != "image/png" {
-		contentType = detectedType
+	// Require a supported filename extension independently of the client-supplied
+	// MIME type. This rejects GIF/other formats even if a caller labels them PNG,
+	// while still allowing corrupted .png/.jpg bytes to reach the worker.
+	var contentType string
+	switch filepath.Ext(strings.ToLower(header.Filename)) {
+	case ".jpg", ".jpeg":
+		contentType = "image/jpeg"
+	case ".png":
+		contentType = "image/png"
+	default:
+		return uploadedImage{}, errUnsupportedImage
 	}
-	if contentType != "image/jpeg" && contentType != "image/png" {
-		switch filepath.Ext(strings.ToLower(header.Filename)) {
-		case ".jpg", ".jpeg":
-			contentType = "image/jpeg"
-		case ".png":
-			contentType = "image/png"
-		default:
-			return uploadedImage{}, errUnsupportedImage
-		}
+
+	// If the bytes clearly identify a supported image, require its detected type
+	// to agree with the filename. Unrecognized bytes remain queued so the worker
+	// can persist a failed job for a deliberately corrupted supported image.
+	detectedType := http.DetectContentType(dataBytes)
+	if (detectedType == "image/jpeg" || detectedType == "image/png") && detectedType != contentType {
+		return uploadedImage{}, errUnsupportedImage
 	}
 
 	ext := ".png"

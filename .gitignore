@@ -14,6 +14,9 @@ bin/
 *.test
 *.out
 
+# Local uploaded originals and generated image variants
+storage/
+
 # Vendor
 vendor/
 

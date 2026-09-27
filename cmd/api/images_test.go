@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"mime/multipart"
 	"net/http/httptest"
+	"net/textproto"
 	"testing"
 )
 
@@ -63,5 +64,29 @@ func TestParseUploadedImageAcceptsCorruptPNGForWorker(t *testing.T) {
 	}
 	if len(uploaded.data) == 0 {
 		t.Fatal("corrupt image bytes were not retained for worker processing")
+	}
+}
+
+func TestParseUploadedImageRejectsUnsupportedExtensionDespitePNGContentType(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="image"; filename="animated.gif"`)
+	header.Set("Content-Type", "image/png")
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte("not a PNG")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest("POST", "/v1/images", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	if _, err := (&application{}).parseUploadedImage(request); err != errUnsupportedImage {
+		t.Fatalf("parseUploadedImage() error = %v, want %v", err, errUnsupportedImage)
 	}
 }
