@@ -223,14 +223,15 @@ func (app *application) getJobHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	app.writeJSON(w, http.StatusOK, envelope{
-		"id":           imageJob.PublicID,
-		"image_id":     imageJob.ImageID,
-		"status":       imageJob.Status,
-		"queued_at":    imageJob.QueuedAt,
-		"started_at":   imageJob.StartedAt,
-		"completed_at": imageJob.CompletedAt,
-		"failed_at":    imageJob.FailedAt,
-		"error":        imageJob.Error,
-		"variants":     imageJob.Variants,
+		"id":             imageJob.PublicID,
+		"image_id":       imageJob.ImageID,
+		"status":         imageJob.Status,
+		"queue_position": imageJob.QueuePosition,
+		"queued_at":      imageJob.QueuedAt,
+		"started_at":     imageJob.StartedAt,
+		"completed_at":   imageJob.CompletedAt,
+		"failed_at":      imageJob.FailedAt,
+		"error":          imageJob.Error,
+		"variants":       imageJob.Variants,
 	}, nil)
 }

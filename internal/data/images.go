@@ -17,16 +17,17 @@ type Image struct {
 
 // ImageJob tracks the lifecycle of an accepted upload from queued to completed/failed.
 type ImageJob struct {
-	ID          string     `json:"id"`
-	PublicID    string     `json:"public_id"`
-	ImageID     string     `json:"image_id"`
-	Status      string     `json:"status"`
-	Error       *string    `json:"error,omitempty"`
-	QueuedAt    time.Time  `json:"queued_at"`
-	StartedAt   *time.Time `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at"`
-	FailedAt    *time.Time `json:"failed_at,omitempty"`
-	Variants    []Variant  `json:"variants,omitempty"`
+	ID            string     `json:"id"`
+	PublicID      string     `json:"public_id"`
+	ImageID       string     `json:"image_id"`
+	Status        string     `json:"status"`
+	QueuePosition int        `json:"queue_position"`
+	Error         *string    `json:"error,omitempty"`
+	QueuedAt      time.Time  `json:"queued_at"`
+	StartedAt     *time.Time `json:"started_at"`
+	CompletedAt   *time.Time `json:"completed_at"`
+	FailedAt      *time.Time `json:"failed_at,omitempty"`
+	Variants      []Variant  `json:"variants,omitempty"`
 }
 
 // Variant stores the generated output metadata returned to the browser.
@@ -66,7 +67,7 @@ func (m ImageModel) ClaimNext(ctx context.Context) (*ImageJob, error) {
 	}
 	defer tx.Rollback()
 	job := &ImageJob{}
-	if err := tx.QueryRowContext(ctx, `SELECT id, image_id FROM image_jobs WHERE status='queued' ORDER BY queued_at FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&job.ID, &job.ImageID); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT id, image_id FROM image_jobs WHERE status='queued' ORDER BY queued_at, id FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&job.ID, &job.ImageID); err != nil {
 		return nil, err
 	}
 	if err := tx.QueryRowContext(ctx, `UPDATE image_jobs SET status='processing', started_at=now() WHERE id=$1 RETURNING started_at`, job.ID).Scan(&job.StartedAt); err != nil {
@@ -82,7 +83,13 @@ func (m ImageModel) ClaimNext(ctx context.Context) (*ImageJob, error) {
 // GetJob returns the current job state together with any generated variant metadata.
 func (m ImageModel) GetJob(ctx context.Context, id string) (*ImageJob, error) {
 	job := &ImageJob{}
-	err := m.DB.QueryRowContext(ctx, `SELECT id,public_id,image_id,status,error_message,queued_at,started_at,completed_at,failed_at FROM image_jobs WHERE public_id=$1`, id).Scan(&job.ID, &job.PublicID, &job.ImageID, &job.Status, &job.Error, &job.QueuedAt, &job.StartedAt, &job.CompletedAt, &job.FailedAt)
+	err := m.DB.QueryRowContext(ctx, `SELECT id,public_id,image_id,status,error_message,queued_at,started_at,completed_at,failed_at,
+		CASE WHEN status='queued' THEN (
+			SELECT COUNT(*) FROM image_jobs AS earlier
+			WHERE earlier.status='queued'
+			AND (earlier.queued_at, earlier.id) <= (image_jobs.queued_at, image_jobs.id)
+		) ELSE 0 END
+		FROM image_jobs WHERE public_id=$1`, id).Scan(&job.ID, &job.PublicID, &job.ImageID, &job.Status, &job.Error, &job.QueuedAt, &job.StartedAt, &job.CompletedAt, &job.FailedAt, &job.QueuePosition)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrRecordNotFound
 	}

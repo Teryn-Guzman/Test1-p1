@@ -9,6 +9,7 @@ const initialState = {
 	results: [],
 	resultError: '',
 	observing: false,
+	measurements: null,
 	choosingDifferentImage: false,
 };
 
@@ -28,6 +29,6 @@ export class AppState extends EventEmitter {
 	}
 
 	resetJob() {
-		this.update({ job: null, results: [], resultError: '', observing: false });
+		this.update({ job: null, results: [], resultError: '', observing: false, measurements: null });
 	}
 }

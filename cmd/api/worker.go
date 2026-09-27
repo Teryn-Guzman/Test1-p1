@@ -27,6 +27,9 @@ func (app *application) processNextImageJob(ctx context.Context) error {
 		defer timer.Stop()
 		select {
 		case <-ctx.Done():
+			failCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = app.models.Images.Fail(failCtx, job.ID, "processing was interrupted")
 			return ctx.Err()
 		case <-timer.C:
 		}
@@ -106,6 +109,12 @@ func resize(source image.Image, maxWidth, maxHeight int, crop bool) (image.Image
 		scale = value
 	}
 	width, height := int(float64(sw)*scale), int(float64(sh)*scale)
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
 	if crop {
 		width, height = maxWidth, maxHeight
 	}
