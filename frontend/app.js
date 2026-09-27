@@ -34,6 +34,7 @@ function chooseDifferentImage() {
 		results: [],
 		resultError: '',
 		observing: false,
+		measurements: null,
 		choosingDifferentImage: true,
 	});
 }
@@ -63,7 +64,14 @@ async function submitImage(event) {
 	if (current.isSubmitting || current.job || !current.file || current.uploadError) return;
 
 	cancelPolling();
-	state.update({ isSubmitting: true, job: { status: 'uploading' }, results: [], resultError: '' });
+	const requestStartedAt = performance.now();
+	state.update({
+		isSubmitting: true,
+		job: { status: 'uploading' },
+		results: [],
+		resultError: '',
+		measurements: { acknowledgementLatencyMs: null, pollCount: 0, detectionDelayMs: null },
+	});
 
 	try {
 		const data = await uploadImage(current.file);
@@ -71,8 +79,13 @@ async function submitImage(event) {
 			isSubmitting: false,
 			job: { id: data.job_id, statusUrl: data.status_url, status: data.status },
 			observing: true,
+			measurements: {
+				acknowledgementLatencyMs: performance.now() - requestStartedAt,
+				pollCount: 0,
+				detectionDelayMs: null,
+			},
 		});
-		pollJob();
+		void pollJob();
 	} catch (error) {
 		const message = error instanceof TypeError
 			? 'Could not reach the image API. Make sure the Go server is running at http://localhost:4000.'
@@ -88,24 +101,41 @@ async function pollJob() {
 	if (!current.job?.statusUrl || current.job.status === 'completed' || current.job.status === 'failed') return;
 
 	cancelPolling();
-	pollController = new AbortController();
+	const controller = new AbortController();
+	pollController = controller;
+	const measurements = current.measurements || { acknowledgementLatencyMs: null, pollCount: 0, detectionDelayMs: null };
+	state.update({
+		observing: true,
+		resultError: '',
+		measurements: { ...measurements, pollCount: measurements.pollCount + 1 },
+	});
+
 	try {
-		const job = await getJob(current.job.statusUrl, pollController.signal);
+		const job = await getJob(current.job.statusUrl, controller.signal);
+		if (controller.signal.aborted) return;
+		const terminal = job.status === 'completed' || job.status === 'failed';
+		const terminalAt = job.status === 'completed' ? job.completed_at : job.status === 'failed' ? job.failed_at : null;
+		const detectionDelayMs = terminalAt ? Math.max(0, Date.now() - new Date(terminalAt).getTime()) : null;
+		if (terminal) stopPolling();
 		state.update({
-			job: { ...current.job, ...job },
-			// The backend records each variant as soon as it's generated, so show
-			// whatever has arrived so far instead of waiting for job.status to
-			// reach "completed".
+			job: { ...state.get().job, ...job },
 			results: job.variants || [],
-			observing: job.status === 'queued' || job.status === 'processing',
+			observing: !terminal,
 			resultError: '',
+			measurements: { ...state.get().measurements, detectionDelayMs },
 		});
-		if (job.status === 'queued' || job.status === 'processing') {
+		if (!terminal && (job.status === 'queued' || job.status === 'processing')) {
 			pollTimer = setTimeout(pollJob, 1000);
+		} else if (!terminal) {
+			stopPolling();
+			state.update({ observing: false, resultError: 'The job returned an unrecognized status.' });
 		}
 	} catch (error) {
 		if (error.name === 'AbortError') return;
+		stopPolling();
 		state.update({ observing: false, resultError: 'Unable to check status.' });
+	} finally {
+		if (pollController === controller) pollController = null;
 	}
 }
 
@@ -118,6 +148,10 @@ function cancelPolling() {
 		pollController.abort();
 		pollController = null;
 	}
+}
+
+function stopPolling() {
+	cancelPolling();
 }
 
 function isSupportedImage(file) {

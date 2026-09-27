@@ -106,6 +106,7 @@ function renderJob(state) {
 			${timelineHTML(job)}
 			${asideHTML(state, job)}
 		</div>
+		${measurementsHTML(state, job)}
 	`;
 }
 
@@ -167,7 +168,29 @@ function asideHTML(state, job) {
 		<span class="polling-dot"></span>
 		<strong class="aside-title">Checking status automatically</strong>
 		<span class="aside-note">Every 1 second</span>
+		${job.status === 'queued' && job.queue_position ? `<span class="aside-note">Queue position: ${Number(job.queue_position)}</span>` : ''}
 	</div>`;
+}
+
+function measurementsHTML(state, job) {
+	const measurements = state.measurements;
+	if (!measurements || job.status === 'uploading') return '';
+	const completedAt = job.completed_at || job.failed_at;
+	const queueWaitMs = job.queued_at && job.started_at ? Date.parse(job.started_at) - Date.parse(job.queued_at) : null;
+	const processingMs = job.started_at && completedAt ? Date.parse(completedAt) - Date.parse(job.started_at) : null;
+	const jobDurationMs = job.queued_at && completedAt ? Date.parse(completedAt) - Date.parse(job.queued_at) : null;
+	const rows = [
+		['Acknowledgement latency', formatDuration(measurements.acknowledgementLatencyMs)],
+		['Queue wait', formatDuration(queueWaitMs)],
+		['Processing duration', formatDuration(processingMs)],
+		['Total job duration', formatDuration(jobDurationMs)],
+		['Status GET requests', String(measurements.pollCount)],
+		['Detection delay (approx.)', formatDuration(measurements.detectionDelayMs)],
+	].filter(([, value]) => value !== '—');
+	return `<section class="job-measurements" aria-label="Job measurements">
+		<strong>Measurements</strong>
+		<dl>${rows.map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHTML(value)}</dd></div>`).join('')}</dl>
+	</section>`;
 }
 
 /* ---------- results panel ---------- */
@@ -257,6 +280,11 @@ function formatTime(value) {
 	return Number.isNaN(date.getTime())
 		? ''
 		: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function formatDuration(value) {
+	if (!Number.isFinite(value) || value < 0) return '—';
+	return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`;
 }
 
 function pendingLabel(state) {
