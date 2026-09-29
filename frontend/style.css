@@ -344,6 +344,16 @@ a:focus-visible,
   font-weight: 500;
 }
 
+/* Failure messages match the job card's red, not the default muted gray. */
+.empty-state.is-failed {
+  color: #f0aba6;
+}
+
+.empty-state.is-failed strong {
+  color: var(--red);
+  font-size: 1.15rem;
+}
+
 .job-head {
   display: flex;
   align-items: flex-start;

@@ -15,11 +15,25 @@ import (
 
 // processNextImageJob claims one queued job, processes it, and records either
 // a completed result or a durable failure for the polling endpoint.
-func (app *application) processNextImageJob(ctx context.Context) error {
+func (app *application) processNextImageJob(ctx context.Context) (err error) {
 	job, err := app.models.Images.ClaimNext(ctx)
 	if err != nil {
 		return err
 	}
+
+	// A panic here (e.g. a malformed image tripping up resize/decode) must not
+	// take down the whole server, and the already-claimed job must not be left
+	// stuck in "processing" forever.
+	defer func() {
+		if r := recover(); r != nil {
+			app.logger.Error("image worker panic", "job_id", job.PublicID, "panic", r)
+			failCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = app.models.Images.Fail(failCtx, job.ID, "an unexpected error occurred while processing the image")
+			err = nil
+		}
+	}()
+
 	if app.config.imageProcessingDelay > 0 {
 		// Keep the delay in the worker so POST /v1/images still returns 202
 		// immediately while GET /v1/jobs/{public_id} shows processing.
