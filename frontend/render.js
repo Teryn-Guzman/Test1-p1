@@ -83,6 +83,15 @@ function renderUploadState(state) {
 function renderJob(state) {
 	const job = state.job;
 
+	// A submission failure (e.g. lost connection) means no job was ever
+	// created, so retrying just resubmits the same file rather than resuming
+	// observation of an existing one.
+	if (!job && state.submitError) {
+		elements.jobCard.className = 'job-body empty-state is-failed';
+		elements.jobCard.innerHTML = `${emptyMarkup('Upload failed', escapeHTML(state.submitError))}<button class="try-again" type="button" data-action="retry-upload">Retry upload</button>`;
+		return;
+	}
+
 	if (!job) {
 		elements.jobCard.className = 'job-body empty-state';
 		elements.jobCard.innerHTML = emptyMarkup('No active job', 'Submit an image to begin.');
@@ -149,7 +158,7 @@ function asideHTML(state, job) {
 		return `<div class="job-aside">
 			<strong class="aside-title">Unable to check status</strong>
 			<span class="aside-note">The job may still be running.</span>
-			<button class="try-again" type="button">Try again</button>
+			<button class="try-again" type="button" data-action="try-again">Try again</button>
 		</div>`;
 	}
 	if (job.status === 'completed') {
@@ -208,7 +217,7 @@ function renderResults(state) {
 
 	if (job.status === 'failed') {
 		elements.resultCount.textContent = '0 files';
-		elements.results.className = 'results empty-state';
+		elements.results.className = 'results empty-state is-failed';
 		elements.results.innerHTML = emptyMarkup('No images generated', 'This job failed, so no variants are available.');
 		return;
 	}
@@ -267,7 +276,11 @@ function pendingCardHTML(slot) {
 /* ---------- helpers ---------- */
 
 export function bindTryAgain(listener) {
-	elements.jobCard.querySelector('.try-again')?.addEventListener('click', listener);
+	elements.jobCard.querySelector('[data-action="try-again"]')?.addEventListener('click', listener);
+}
+
+export function bindRetryUpload(listener) {
+	elements.jobCard.querySelector('[data-action="retry-upload"]')?.addEventListener('click', listener);
 }
 
 function emptyMarkup(title, subtitle) {

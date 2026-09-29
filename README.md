@@ -93,7 +93,9 @@ queued -> processing -> completed
 
 Retrieval errors are treated as observation failures. The browser preserves the
 last known job and offers **Try again** instead of falsely marking the job as
-failed or uploading the image again.
+failed or uploading the image again. If the initial `POST /v1/images` itself
+fails (for example, a lost connection before any job exists), the UI instead
+offers **Retry upload**, which resubmits the same selected file.
 
 ## HTTP API
 
@@ -168,62 +170,112 @@ SELECT * FROM image_variants ORDER BY created_at DESC;
 
 ## Week 3/4 acceptance demonstration
 
-### Polling and retry
+Run these steps in order. Steps 3 onward use a second terminal, with the
+server from step 3 left running throughout.
 
-1. Start the API with `make run/api image_processing_delay=10s`.
-2. Open DevTools **Network**, enable **Preserve log**, and filter for `/v1/jobs/`.
-3. Upload and process an image. Confirm the POST returns `202` before the delay
-   ends, then observe separate status GET requests about one second apart.
-4. Observe the card move through `queued`/`processing` to `completed`; confirm
-   polling stops and all three variants appear. The card reports poll count and
-   client/server timing measurements.
-5. To simulate an observation error, use DevTools Network throttling to switch
-   to **Offline** after the job has been accepted. The UI should show **Unable
-   to check status**, retain the last known job state, and offer **Try again**.
-   Switch back online and retry; it must observe the same job URL without POSTing
-   another upload. An observation error is not a processing failure.
+### 1. Automated tests
 
-### Required outcomes and failures
+```bash
+go test ./... -v
+```
 
-- Reject an empty or unsupported file and confirm no job is queued.
+### 2. Sample files
+
+`tmp/` should not be committed.
+
+```bash
+mkdir -p tmp
+echo "tmp/" >> .gitignore
+echo 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' | base64 -d > tmp/tiny.png
+printf 'not a valid PNG' > tmp/corrupt.png
+echo hello > tmp/note.txt
+```
+
+### 3. Start the server
+
+```bash
+make run/api image_processing_delay=10s
+```
+
+The delay makes the async behavior in the steps below observable.
+
+### 4. Required outcomes and failures
+
+- Reject an empty or unsupported file and confirm no job is queued:
+
+  ```bash
+  curl -s -o /dev/null -w "text file: %{http_code}\n" \
+    -F "image=@tmp/note.txt;type=text/plain" http://localhost:4000/v1/images
+  curl -s -o /dev/null -w "no file:   %{http_code}\n" \
+    -X POST http://localhost:4000/v1/images
+  ```
+
 - Submit a corrupt `.png` payload with a PNG multipart content type. POST should
   return `202`; the worker should later produce `status = failed`, a safe
   `error_message`, and `failed_at`.
+
+  ```bash
+  JOB=$(curl -s -F "image=@tmp/corrupt.png;type=image/png" \
+    http://localhost:4000/v1/images | grep -o '"job_id": *"[^"]*"' | cut -d'"' -f4)
+  sleep 12; curl -s http://localhost:4000/v1/jobs/$JOB
+  ```
+
 - Upload a valid image and confirm the original is in `storage/` and the three
-  output files are in `storage/variants/`.
+  output files are in `storage/variants/`:
+
+  ```bash
+  curl -i -w "\nack: %{time_total}s\n" \
+    -F "image=@tmp/tiny.png;type=image/png" http://localhost:4000/v1/images
+  ls storage storage/variants
+  ```
+
 - After a terminal state, use **Choose another image** and submit a second image.
-- To observe a queue with one worker, submit five valid images close together
-  while using the 10-second worker delay. Poll their status URLs and observe
-  `queue_position` for jobs still queued.
 
-### Measurements
-
-The job card displays acknowledgement latency, queue wait, processing duration,
-total job duration, status GET count, and approximate detection delay. Server
-duration values can also be verified from PostgreSQL:
-
-```sql
-SELECT public_id,
-       status,
-       started_at - queued_at AS queue_wait,
-       COALESCE(completed_at, failed_at) - started_at AS processing_duration,
-       COALESCE(completed_at, failed_at) - queued_at AS total_job_duration
-FROM image_jobs
-ORDER BY queued_at DESC;
-```
-
-Acknowledgement latency is measured in the browser from upload POST start until
-the `202` response is received. Detection delay is approximate and assumes the
-browser and database clocks are reasonably synchronized.
-
-### Image processing tests
-
-Run the automated Go tests for the variant sizing contracts and corrupt-image
-acceptance behavior:
+### 5. Five-image burst (queue position with one worker)
 
 ```bash
-go test ./...
+for i in 1 2 3 4 5; do
+  curl -s -o /dev/null -w "ack $i: %{http_code} %{time_total}s\n" \
+    -F "image=@tmp/tiny.png;type=image/png" http://localhost:4000/v1/images
+done
+
+# Wait until all five have reached a terminal state before reading the table.
+while [ "$(psql "$GATEKEEPER_DB_DSN" -tAc \
+  "SELECT COUNT(*) FROM image_jobs WHERE status IN ('queued','processing') \
+   AND queued_at > now() - interval '2 minutes';")" != "0" ]; do
+  sleep 2
+done
+
+psql "$GATEKEEPER_DB_DSN" -c "SELECT public_id, status, \
+  started_at - queued_at AS queue_wait, \
+  COALESCE(completed_at, failed_at) - started_at AS processing, \
+  COALESCE(completed_at, failed_at) - queued_at AS total \
+  FROM image_jobs ORDER BY queued_at DESC LIMIT 5;"
 ```
+
+`queue_wait` should climb by roughly one delay interval (~10s) per job, since
+one worker processes them strictly in order. For the single-image measurement
+row, run one upload by itself and read the same query with `LIMIT 1`. To see
+live `queue_position` values, poll a queued job's `status_url` during the
+burst instead of waiting for it to finish.
+
+### 6. Polling and retry (browser)
+
+1. Open `http://localhost:4000`. In DevTools **Network**, enable **Preserve
+   log** and filter for `/v1/jobs/`.
+2. Upload and process an image. Confirm the POST returns `202` before the
+   delay ends, then observe separate status GET requests about one second
+   apart.
+3. Confirm the card moves through `queued`/`processing` to `completed`,
+   polling stops, and all three variants appear.
+4. To simulate an observation error, switch Network throttling to **Offline**
+   after the job is accepted. The UI should show **Unable to check status**,
+   keep the last known job state, and offer **Try again**. Go back online and
+   retry; it must observe the same job URL without a new POST.
+5. To simulate a submission failure, stop the server (or go Offline) before
+   clicking **Process image**. The UI should show **Upload failed** with a
+   **Retry upload** button. Restart the server (or go back online) and click
+   it; it must resubmit the same selected file without reselecting it.
 
 ## Validation and troubleshooting
 

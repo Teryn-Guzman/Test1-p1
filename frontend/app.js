@@ -1,6 +1,6 @@
 import { uploadImage, getJob } from './modules/data-service.js';
 import { AppState } from './state.js';
-import { bindTryAgain, render } from './render.js';
+import { bindTryAgain, bindRetryUpload, render } from './render.js';
 
 const form = document.querySelector('#upload-form');
 const input = document.querySelector('#image-input');
@@ -12,12 +12,16 @@ let pollTimer = null;
 state.on('change', nextState => {
 	render(nextState);
 	bindTryAgain(pollJob);
+	bindRetryUpload(() => attemptUpload(state.get().file));
 });
 render(state.get());
 
 input.addEventListener('change', handleFileSelection);
 changeImageButton.addEventListener('click', chooseDifferentImage);
-form.addEventListener('submit', submitImage);
+form.addEventListener('submit', event => {
+	event.preventDefault();
+	attemptUpload(state.get().file);
+});
 window.addEventListener('beforeunload', cancelPolling);
 
 function chooseDifferentImage() {
@@ -29,6 +33,7 @@ function chooseDifferentImage() {
 		file: null,
 		previewUrl: '',
 		uploadError: '',
+		submitError: '',
 		isSubmitting: false,
 		job: null,
 		results: [],
@@ -58,10 +63,11 @@ function handleFileSelection() {
 	state.update({ file, previewUrl: URL.createObjectURL(file), uploadError: '', choosingDifferentImage: false });
 }
 
-async function submitImage(event) {
-	event.preventDefault();
+// Shared by the form submit and the Retry upload button, so a lost connection
+// can be retried with the same file instead of starting over.
+async function attemptUpload(file) {
 	const current = state.get();
-	if (current.isSubmitting || current.job || !current.file || current.uploadError) return;
+	if (current.isSubmitting || current.job || !file || current.uploadError) return;
 
 	cancelPolling();
 	const requestStartedAt = performance.now();
@@ -70,13 +76,13 @@ async function submitImage(event) {
 		job: { status: 'uploading' },
 		results: [],
 		resultError: '',
+		submitError: '',
 		measurements: { acknowledgementLatencyMs: null, pollCount: 0, detectionDelayMs: null },
 	});
 
 	try {
-		const data = await uploadImage(current.file);
+		const data = await uploadImage(file);
 		state.update({
-			isSubmitting: false,
 			job: { id: data.job_id, statusUrl: data.status_url, status: data.status },
 			observing: true,
 			measurements: {
@@ -90,7 +96,7 @@ async function submitImage(event) {
 		const message = error instanceof TypeError
 			? 'Could not reach the image API. Make sure the Go server is running at http://localhost:4000.'
 			: error.message;
-		state.update({ isSubmitting: false, uploadError: message, job: null });
+		state.update({ submitError: message, job: null });
 	} finally {
 		state.update({ isSubmitting: false });
 	}

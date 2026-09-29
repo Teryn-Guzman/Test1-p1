@@ -4,6 +4,7 @@ const initialState = {
 	file: null,
 	previewUrl: '',
 	uploadError: '',
+	submitError: '',
 	isSubmitting: false,
 	job: null,
 	results: [],
@@ -29,6 +30,6 @@ export class AppState extends EventEmitter {
 	}
 
 	resetJob() {
-		this.update({ job: null, results: [], resultError: '', observing: false, measurements: null });
+		this.update({ job: null, results: [], resultError: '', submitError: '', observing: false, measurements: null });
 	}
 }
